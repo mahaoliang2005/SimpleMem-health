@@ -62,6 +62,7 @@ def deduplicate_entries(
                         loser.superseded_by = winner.entry_id
     except Exception as e:
         print(f"[Deduplication] Similarity computation failed: {e}. Skipping dedup.")
+        return entries
 
     return entries
 
