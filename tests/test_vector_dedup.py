@@ -64,6 +64,43 @@ class TestDeduplicateEntries:
         assert result[0].superseded_by == long.entry_id
         assert result[1].superseded_by is None
 
+    def test_keep_newer_strategy(self):
+        old = MemoryEntry(
+            lossless_restatement="Old text",
+            keywords=["a"],
+            timestamp="2025-01-01T10:00:00"
+        )
+        new = MemoryEntry(
+            lossless_restatement="New text",
+            keywords=["a"],
+            timestamp="2025-01-02T10:00:00"
+        )
+        mock_emb = Mock()
+        mock_emb.encode_documents.return_value = np.array([
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ])
+        result = deduplicate_entries([old, new], mock_emb, threshold=0.85, strategy="keep_newer")
+        assert result[0].superseded_by == new.entry_id
+        assert result[1].superseded_by is None
+
+    def test_transitive_chain_canonicalized(self):
+        # A, B, C all identical -> B beats A, C beats B -> A should point directly to C
+        a = MemoryEntry(lossless_restatement="A", keywords=["x"])
+        b = MemoryEntry(lossless_restatement="B", keywords=["x"])
+        c = MemoryEntry(lossless_restatement="C longer text", keywords=["x"])
+        mock_emb = Mock()
+        mock_emb.encode_documents.return_value = np.array([
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ])
+        result = deduplicate_entries([a, b, c], mock_emb, threshold=0.85, strategy="keep_longer")
+        # C is longest, so A and B should both point directly to C
+        assert result[0].superseded_by == c.entry_id
+        assert result[1].superseded_by == c.entry_id
+        assert result[2].superseded_by is None
+
     def test_fail_open_on_embedding_error(self):
         entries = [MemoryEntry(lossless_restatement="Test", keywords=["test"])]
         mock_emb = Mock()
@@ -72,3 +109,17 @@ class TestDeduplicateEntries:
         # Should return original entries unchanged
         assert len(result) == 1
         assert result[0].superseded_by is None
+
+    def test_fail_open_on_similarity_error(self):
+        entries = [MemoryEntry(lossless_restatement="Test", keywords=["test"])]
+        mock_emb = Mock()
+        mock_emb.encode_documents.return_value = np.array([[1.0, 0.0, 0.0]])
+        import core.vector_dedup as vd
+        original_norm = np.linalg.norm
+        try:
+            np.linalg.norm = Mock(side_effect=RuntimeError("norm failed"))
+            result = deduplicate_entries(entries, mock_emb, threshold=0.85)
+            assert len(result) == 1
+            assert result[0].superseded_by is None
+        finally:
+            np.linalg.norm = original_norm

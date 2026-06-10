@@ -60,6 +60,15 @@ def deduplicate_entries(
                     winner, loser = _choose_winner(entries[i], entries[j], strategy)
                     if loser.superseded_by is None:
                         loser.superseded_by = winner.entry_id
+
+        # Canonicalize superseded_by chains: ensure every loser points to the root winner
+        entry_map = {e.entry_id: e for e in entries}
+        for e in entries:
+            if e.superseded_by is not None:
+                current_id = e.superseded_by
+                while current_id in entry_map and entry_map[current_id].superseded_by is not None:
+                    current_id = entry_map[current_id].superseded_by
+                e.superseded_by = current_id
     except Exception as e:
         print(f"[Deduplication] Similarity computation failed: {e}. Skipping dedup.")
         return entries
@@ -70,7 +79,7 @@ def deduplicate_entries(
 def _choose_winner(
     a: MemoryEntry,
     b: MemoryEntry,
-    strategy: Literal["keep_longer", "keep_newer"]
+    strategy: Literal["keep_longer", "keep_newer", "keep_both"]
 ) -> tuple[MemoryEntry, MemoryEntry]:
     """Return (winner, loser) according to the chosen strategy."""
     if strategy == "keep_longer":
