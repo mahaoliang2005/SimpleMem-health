@@ -51,6 +51,10 @@ class MemoryEntry(BaseModel):
         None,
         description="Topic phrase summarized by LLM"
     )
+    superseded_by: Optional[str] = Field(
+        None,
+        description="ID of the entry that superseded this one (soft delete marker)"
+    )
 
     class Config:
         json_schema_extra = {
@@ -62,7 +66,8 @@ class MemoryEntry(BaseModel):
                 "location": "Starbucks, Shanghai",
                 "persons": ["Alice", "Bob"],
                 "entities": ["product XYZ"],
-                "topic": "Product marketing strategy discussion"
+                "topic": "Product marketing strategy discussion",
+                "superseded_by": null
             }
         }
 
