@@ -61,7 +61,8 @@ class VectorStore:
             pa.field("persons", pa.list_(pa.string())),
             pa.field("entities", pa.list_(pa.string())),
             pa.field("topic", pa.string()),
-            pa.field("vector", pa.list_(pa.float32(), self.embedding_model.dimension))
+            pa.field("vector", pa.list_(pa.float32(), self.embedding_model.dimension)),
+            pa.field("superseded_by", pa.string())
         ])
 
         if self.table_name not in self.db.table_names():
@@ -111,7 +112,8 @@ class VectorStore:
                     location=r.get("location") or None,
                     persons=list(r.get("persons") or []),
                     entities=list(r.get("entities") or []),
-                    topic=r.get("topic") or None
+                    topic=r.get("topic") or None,
+                    superseded_by=r.get("superseded_by") or None
                 ))
             except Exception as e:
                 print(f"Warning: Failed to parse result: {e}")
@@ -137,7 +139,8 @@ class VectorStore:
                 "persons": entry.persons,
                 "entities": entry.entities,
                 "topic": entry.topic or "",
-                "vector": vector.tolist()
+                "vector": vector.tolist(),
+                "superseded_by": entry.superseded_by or ""
             })
 
         self.table.add(data)
@@ -157,7 +160,9 @@ class VectorStore:
                 return []
 
             query_vector = self.embedding_model.encode_single(query, is_query=True)
-            results = self.table.search(query_vector.tolist()).limit(top_k).to_list()
+            results = self.table.search(query_vector.tolist()) \
+                .where("superseded_by == ''", prefilter=True) \
+                .limit(top_k).to_list()
             return self._results_to_entries(results)
 
         except Exception as e:
@@ -175,7 +180,9 @@ class VectorStore:
 
             # LanceDB auto-detects string input as FTS query when FTS index exists
             query = " ".join(keywords)
-            results = self.table.search(query).limit(top_k).to_list()
+            results = self.table.search(query) \
+                .where("superseded_by == ''", prefilter=True) \
+                .limit(top_k).to_list()
             return self._results_to_entries(results)
 
         except Exception as e:
@@ -220,6 +227,7 @@ class VectorStore:
                 conditions.append(f"timestamp >= '{start_time}' AND timestamp <= '{end_time}'")
 
             where_clause = " AND ".join(conditions)
+            where_clause = where_clause + " AND superseded_by == ''"
             query = self.table.search().where(where_clause, prefilter=True)
 
             if top_k:
@@ -234,8 +242,23 @@ class VectorStore:
 
     def get_all_entries(self) -> List[MemoryEntry]:
         """Get all memory entries."""
-        results = self.table.to_arrow().to_pylist()
+        results = self.table.search().where("superseded_by == ''", prefilter=True).to_list()
         return self._results_to_entries(results)
+
+    def mark_superseded(self, entry_ids: List[str], superseded_by: str):
+        """Mark entries as superseded by another entry (soft delete)."""
+        if not entry_ids:
+            return
+        try:
+            for entry_id in entry_ids:
+                safe_id = entry_id.replace("'", "''")
+                self.table.update(
+                    where=f"entry_id = '{safe_id}'",
+                    values={"superseded_by": superseded_by}
+                )
+            print(f"Marked {len(entry_ids)} entries as superseded by {superseded_by}")
+        except Exception as e:
+            print(f"Error marking entries as superseded: {e}")
 
     def optimize(self):
         """Optimize table after bulk insertions for better query performance."""
