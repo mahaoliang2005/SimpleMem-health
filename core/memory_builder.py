@@ -8,9 +8,11 @@ Implements:
 - Generates compact memory units with resolved coreferences and absolute timestamps
 """
 from typing import List, Optional
+from collections import defaultdict
 from models.memory_entry import MemoryEntry, Dialogue
 from utils.llm_client import LLMClient
 from database.vector_store import VectorStore
+from core.vector_dedup import deduplicate_entries
 import config
 import json
 import asyncio
@@ -146,10 +148,28 @@ class MemoryBuilder:
         # Call LLM to generate memory entries
         entries = self._generate_memory_entries(window)
 
-        # Store to database
+        # Deduplicate before storing
         if entries:
-            self.vector_store.add_entries(entries)
-            self.previous_entries = entries  # Save as context
+            if getattr(config, 'ENABLE_DEDUP', True):
+                entries = deduplicate_entries(
+                    entries,
+                    self.vector_store.embedding_model,
+                    threshold=getattr(config, 'DEDUP_THRESHOLD', 0.85),
+                    strategy=getattr(config, 'DEDUP_STRATEGY', 'keep_longer')
+                )
+                survivors = [e for e in entries if not e.superseded_by]
+                dropped = [e for e in entries if e.superseded_by]
+                if survivors:
+                    self.vector_store.add_entries(survivors)
+                if dropped:
+                    winner_to_dropped = defaultdict(list)
+                    for e in dropped:
+                        winner_to_dropped[e.superseded_by].append(e.entry_id)
+                    for winner_id, dropped_ids in winner_to_dropped.items():
+                        self.vector_store.mark_superseded(dropped_ids, winner_id)
+            else:
+                self.vector_store.add_entries(entries)
+            self.previous_entries = entries  # Save as context (includes marked ones)
             self.processed_count += len(window)
 
         print(f"Generated {len(entries)} memory entries")
@@ -162,7 +182,25 @@ class MemoryBuilder:
             print(f"\nProcessing remaining dialogues: {len(self.dialogue_buffer)} (fallback mode)")
             entries = self._generate_memory_entries(self.dialogue_buffer)
             if entries:
-                self.vector_store.add_entries(entries)
+                if getattr(config, 'ENABLE_DEDUP', True):
+                    entries = deduplicate_entries(
+                        entries,
+                        self.vector_store.embedding_model,
+                        threshold=getattr(config, 'DEDUP_THRESHOLD', 0.85),
+                        strategy=getattr(config, 'DEDUP_STRATEGY', 'keep_longer')
+                    )
+                    survivors = [e for e in entries if not e.superseded_by]
+                    dropped = [e for e in entries if e.superseded_by]
+                    if survivors:
+                        self.vector_store.add_entries(survivors)
+                    if dropped:
+                        winner_to_dropped = defaultdict(list)
+                        for e in dropped:
+                            winner_to_dropped[e.superseded_by].append(e.entry_id)
+                        for winner_id, dropped_ids in winner_to_dropped.items():
+                            self.vector_store.mark_superseded(dropped_ids, winner_id)
+                else:
+                    self.vector_store.add_entries(entries)
                 self.processed_count += len(self.dialogue_buffer)
             self.dialogue_buffer = []
             print(f"Generated {len(entries)} memory entries")
@@ -360,16 +398,37 @@ Now process the above dialogues. Return ONLY the JSON array, no other explanatio
                 except Exception as e:
                     print(f"[Parallel Processing] Window {window_num} failed: {e}")
         
-        # Store all entries to database in batch
+        # Deduplicate unified batch before storing
         if all_entries:
-            print(f"\n[Parallel Processing] Storing {len(all_entries)} entries to database...")
-            self.vector_store.add_entries(all_entries)
-            self.processed_count += sum(len(window) for window in windows)
-            
-            # Update previous entries (use last window's entries for context)
-            if all_entries:
-                self.previous_entries = all_entries[-10:]  # Keep last 10 entries for context
-        
+            if getattr(config, 'ENABLE_DEDUP', True):
+                all_entries = deduplicate_entries(
+                    all_entries,
+                    self.vector_store.embedding_model,
+                    threshold=getattr(config, 'DEDUP_THRESHOLD', 0.85),
+                    strategy=getattr(config, 'DEDUP_STRATEGY', 'keep_longer')
+                )
+                survivors = [e for e in all_entries if not e.superseded_by]
+                dropped = [e for e in all_entries if e.superseded_by]
+                if survivors:
+                    print(f"\n[Parallel Processing] Storing {len(survivors)} entries to database...")
+                    self.vector_store.add_entries(survivors)
+                if dropped:
+                    winner_to_dropped = defaultdict(list)
+                    for e in dropped:
+                        winner_to_dropped[e.superseded_by].append(e.entry_id)
+                    for winner_id, dropped_ids in winner_to_dropped.items():
+                        self.vector_store.mark_superseded(dropped_ids, winner_id)
+                    print(f"[Parallel Processing] Marked {len(dropped)} duplicates as superseded")
+                self.processed_count += sum(len(window) for window in windows)
+                if all_entries:
+                    self.previous_entries = all_entries[-10:]
+            else:
+                print(f"\n[Parallel Processing] Storing {len(all_entries)} entries to database...")
+                self.vector_store.add_entries(all_entries)
+                self.processed_count += sum(len(window) for window in windows)
+                if all_entries:
+                    self.previous_entries = all_entries[-10:]
+
         print(f"[Parallel Processing] Completed processing {len(windows)} windows")
     
     def _generate_memory_entries_worker(self, window: List[Dialogue], dialogue_ids: List[int], window_num: int) -> List[MemoryEntry]:
