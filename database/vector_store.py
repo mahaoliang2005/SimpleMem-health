@@ -226,8 +226,8 @@ class VectorStore:
                 start_time, end_time = timestamp_range
                 conditions.append(f"timestamp >= '{start_time}' AND timestamp <= '{end_time}'")
 
+            conditions.append("superseded_by == ''")
             where_clause = " AND ".join(conditions)
-            where_clause = where_clause + " AND superseded_by == ''"
             query = self.table.search().where(where_clause, prefilter=True)
 
             if top_k:
@@ -241,8 +241,9 @@ class VectorStore:
             return []
 
     def get_all_entries(self) -> List[MemoryEntry]:
-        """Get all memory entries."""
-        results = self.table.search().where("superseded_by == ''", prefilter=True).to_list()
+        """Get all memory entries, excluding superseded ones."""
+        results = self.table.to_arrow().to_pylist()
+        results = [r for r in results if r.get("superseded_by") == ""]
         return self._results_to_entries(results)
 
     def mark_superseded(self, entry_ids: List[str], superseded_by: str):

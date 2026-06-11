@@ -107,6 +107,67 @@ def test_get_all_entries(store):
     return True
 
 
+def test_mark_superseded_and_search_filtering(store):
+    print("\n[TEST] mark_superseded and search filtering...")
+    # Add a duplicate-like entry
+    dup = MemoryEntry(
+        lossless_restatement="Alice suggested meeting at Starbucks on 2025-01-15 at 2pm (duplicate)",
+        keywords=["Alice", "Starbucks", "meeting"],
+        timestamp="2025-01-15T14:00:00",
+        location="Starbucks",
+        persons=["Alice", "Bob"],
+        entities=["meeting"],
+        topic="Meeting arrangement"
+    )
+    store.add_entries([dup])
+
+    # Verify 4 entries before marking
+    all_entries = store.get_all_entries()
+    assert len(all_entries) == 4, f"Should have 4 entries before mark, got {len(all_entries)}"
+
+    # Mark the duplicate as superseded
+    store.mark_superseded([dup.entry_id], all_entries[0].entry_id)
+
+    # After marking, get_all_entries should exclude the superseded one
+    all_entries_after = store.get_all_entries()
+    assert len(all_entries_after) == 3, f"Should have 3 entries after mark, got {len(all_entries_after)}"
+
+    # Semantic search should also exclude superseded
+    results = store.semantic_search("Starbucks meeting", top_k=10)
+    assert dup.entry_id not in {r.entry_id for r in results}, "Superseded entry should not appear in semantic search"
+
+    # Keyword search should also exclude superseded
+    results = store.keyword_search(["Starbucks"], top_k=10)
+    assert dup.entry_id not in {r.entry_id for r in results}, "Superseded entry should not appear in keyword search"
+
+    # Structured search should also exclude superseded
+    results = store.structured_search(persons=["Alice"], top_k=10)
+    assert dup.entry_id not in {r.entry_id for r in results}, "Superseded entry should not appear in structured search"
+
+    print(f"  PASS: mark_superseded and search filtering work correctly")
+    return True
+
+
+def test_results_to_entries_backward_compat(store):
+    print("\n[TEST] _results_to_entries backward compatibility...")
+    # Simulate a result dict missing superseded_by (old schema)
+    old_result = {
+        "entry_id": "test-old-id",
+        "lossless_restatement": "Old entry without superseded_by",
+        "keywords": ["old"],
+        "timestamp": "",
+        "location": "",
+        "persons": [],
+        "entities": [],
+        "topic": ""
+    }
+    entries = store._results_to_entries([old_result])
+    assert len(entries) == 1
+    assert entries[0].superseded_by is None
+    print("  PASS: Backward compatibility handled")
+    return True
+
+
 def test_gcs_connection(bucket_path, service_account_path=None):
     """
     Test GCS backend with native FTS.
@@ -213,6 +274,8 @@ def main():
         test_structured_search_timestamp,
         test_optimize,
         test_get_all_entries,
+        test_mark_superseded_and_search_filtering,
+        test_results_to_entries_backward_compat,
     ]
 
     passed = 0
