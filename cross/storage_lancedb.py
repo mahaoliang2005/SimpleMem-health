@@ -304,7 +304,7 @@ class CrossSessionVectorStore:
         memory_session_id: Optional[str] = None,
         project: Optional[str] = None,
     ) -> Optional[str]:
-        conditions = []
+        conditions = ["superseded_by == ''"]
 
         if tenant_id:
             safe_tenant = self._escape_sql_string(tenant_id)
@@ -317,9 +317,6 @@ class CrossSessionVectorStore:
         if project and "project" in self._schema_fields:
             safe_project = self._escape_sql_string(project)
             conditions.append(f"project = '{safe_project}'")
-
-        if not conditions:
-            return None
 
         return " AND ".join(conditions)
 
@@ -515,6 +512,7 @@ class CrossSessionVectorStore:
                     safe_tenant = self._escape_sql_string(tenant_id)
                     conditions.append(f"tenant_id = '{safe_tenant}'")
 
+                conditions.append("superseded_by == ''")
                 where_clause = " AND ".join(conditions)
                 query = self.table.search().where(where_clause, prefilter=True)
 
