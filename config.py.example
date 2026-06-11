@@ -108,6 +108,31 @@ MAX_REFLECTION_ROUNDS = 2
 
 
 # ============================================================================
+# Deduplication Configuration
+# ============================================================================
+
+# Enable write-time deduplication for core memory pipeline
+ENABLE_DEDUP = True
+
+# Cosine similarity threshold (0.0 - 1.0).
+# Higher = stricter, fewer duplicates caught.
+# Lower = looser, may merge non-duplicates.
+DEDUP_THRESHOLD = 0.85
+
+# Merge strategy: "keep_longer" | "keep_newer" | "keep_both"
+# keep_longer  - retain the entry with more detailed restatement
+# keep_newer   - retain the entry with the more recent timestamp
+# keep_both    - disable deduplication for this path
+DEDUP_STRATEGY = "keep_longer"
+
+# Enable write-time deduplication for cross-session memory
+ENABLE_CROSS_DEDUP = True
+
+# Cross-session uses a lower threshold because observations are more fragmented
+CROSS_DEDUP_THRESHOLD = 0.80
+
+
+# ============================================================================
 # LLM-as-Judge Configuration (not used yet)
 # ============================================================================
 
