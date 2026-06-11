@@ -20,6 +20,7 @@ from cross.types import (
 )
 from cross.storage_sqlite import SQLiteStorage
 from cross.storage_lancedb import CrossSessionVectorStore
+from core.vector_dedup import deduplicate_entries
 
 try:
     from cross.collectors import EventCollector, ObservationExtractor
@@ -691,22 +692,48 @@ class SessionManager:
             )
             return 0
 
-        # Store entries in CrossSessionVectorStore with provenance
+        # Deduplicate before storing
         try:
+            import config as _config
+            if getattr(_config, 'ENABLE_CROSS_DEDUP', True):
+                memory_entries = deduplicate_entries(
+                    memory_entries,
+                    self._vector_store.embedding_model,
+                    threshold=getattr(_config, 'CROSS_DEDUP_THRESHOLD', 0.80),
+                    strategy=getattr(_config, 'DEDUP_STRATEGY', 'keep_longer')
+                )
+                survivors = [e for e in memory_entries if not e.superseded_by]
+                dropped = [e for e in memory_entries if e.superseded_by]
+            else:
+                survivors = memory_entries
+                dropped = []
+
             self._vector_store.add_entries(
-                entries=memory_entries,
+                entries=survivors,
                 tenant_id=session.tenant_id,
                 memory_session_id=memory_session_id,
                 source_kind="simplemem_pipeline",
                 source_id=0,
                 importance=0.5,
             )
+            if dropped:
+                from collections import defaultdict
+                winner_to_dropped = defaultdict(list)
+                for e in dropped:
+                    winner_to_dropped[e.superseded_by].append(e.entry_id)
+                for winner_id, dropped_ids in winner_to_dropped.items():
+                    for d_id in dropped_ids:
+                        self._vector_store.mark_superseded(d_id, winner_id)
+                logger.info(
+                    "Marked %d cross-session entries as superseded",
+                    len(dropped)
+                )
             logger.info(
                 "Stored %d memory entries from SimpleMem for session %s",
-                len(memory_entries),
+                len(survivors),
                 memory_session_id,
             )
-            return len(memory_entries)
+            return len(survivors)
         except Exception:
             logger.exception(
                 "Error storing SimpleMem entries for session %s",
