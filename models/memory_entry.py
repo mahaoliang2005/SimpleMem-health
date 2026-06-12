@@ -67,7 +67,7 @@ class MemoryEntry(BaseModel):
                 "persons": ["Alice", "Bob"],
                 "entities": ["product XYZ"],
                 "topic": "Product marketing strategy discussion",
-                "superseded_by": null
+                "superseded_by": None
             }
         }
 
