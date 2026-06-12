@@ -68,8 +68,7 @@ class HealthAgent:
 
         # Step 4: Generate answer
         try:
-            import asyncio as _asyncio
-            answer = await _asyncio.to_thread(
+            answer = await asyncio.to_thread(
                 self.llm_client.chat_completion,
                 messages=messages,
                 temperature=0.3

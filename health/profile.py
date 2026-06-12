@@ -1,5 +1,5 @@
 import asyncio
-from typing import List
+from typing import List, Optional
 
 from health.config import HealthConfig
 from health.types import IntentResult, PersonalHealthContext
@@ -16,7 +16,7 @@ class HealthProfile:
         self,
         user_id: str,
         intent_result: IntentResult,
-        top_k: int = None
+        top_k: Optional[int] = None
     ) -> PersonalHealthContext:
         top_k = top_k or self.config.profile_top_k
         query = intent_result.suggested_query or " ".join(intent_result.entities)

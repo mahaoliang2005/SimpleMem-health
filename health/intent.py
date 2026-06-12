@@ -1,7 +1,7 @@
 import asyncio
 import json
 import re
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from health.config import HealthConfig
 from health.types import IntentResult
@@ -9,7 +9,7 @@ from utils.llm_client import LLMClient
 
 
 class HealthIntentExtractor:
-    def __init__(self, llm_client: LLMClient, config: HealthConfig = None):
+    def __init__(self, llm_client: LLMClient, config: Optional[HealthConfig] = None):
         self.llm_client = llm_client
         self.config = config or HealthConfig()
         self._urgent_pattern = re.compile(
